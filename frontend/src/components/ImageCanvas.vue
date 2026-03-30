@@ -425,10 +425,10 @@ onUnmounted(() => {
       </div>
 
       <!-- Instructions -->
-      <Transition name="fade">
+      <Transition name="fade" mode="out-in">
         <div
           v-if="points.length < 4"
-          :key="points.length"
+          :key="'step-' + points.length"
           class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-surface-400/90 backdrop-blur-sm text-slate-300 text-sm px-4 py-2 rounded-xl border border-white/10 shadow-lg"
         >
           <span class="inline-flex items-center gap-2">
@@ -439,13 +439,14 @@ onUnmounted(() => {
             </span>
           </span>
         </div>
+        <div
+          v-else
+          key="complete"
+          class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-accent/90 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-xl"
+        >
+          Quad complete &mdash; drag corners to adjust, then "Save Plate"
+        </div>
       </Transition>
-      <div
-        v-else-if="points.length === 4"
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-accent/90 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-xl"
-      >
-        Quad complete &mdash; drag corners to adjust, then "Save Plate"
-      </div>
     </div>
   </div>
 </template>
