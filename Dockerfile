@@ -33,16 +33,20 @@ COPY backend/ ./backend/
 # Copy built frontend into backend static directory
 COPY --from=frontend-build /build/frontend/dist ./frontend/dist
 
-# Create data directories
-RUN mkdir -p /app/data/originals /app/data/processed
-
-# Non-root user
+# Create non-root user and install gosu for entrypoint
 RUN useradd -m -r plateblank && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gosu && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /app/data/originals /app/data/processed && \
     chown -R plateblank:plateblank /app
-USER plateblank
 
-EXPOSE 8000
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 VOLUME ["/app/data"]
 
+EXPOSE 8000
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
