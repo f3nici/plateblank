@@ -23,8 +23,12 @@ const panStart = ref({ x: 0, y: 0 })
 const imageLoaded = ref(false)
 const naturalWidth = ref(0)
 const naturalHeight = ref(0)
+const draggingPointIndex = ref(-1)
+const isHoveringPoint = ref(false)
+const detecting = ref(false)
 
 let drawRAF = null
+const GRAB_RADIUS = 10
 
 const baseScale = computed(() => {
   if (!containerRef.value || !naturalWidth.value) return 1
@@ -88,15 +92,33 @@ function drawCanvas() {
     }
     ctx.stroke()
 
-    // Draw point markers
-    for (const pt of points.value) {
+    // Draw point markers with grab handles
+    for (let i = 0; i < points.value.length; i++) {
+      const pt = points.value[i]
+      const px = pt[0] * scale.value
+      const py = pt[1] * scale.value
+      const isDragging = draggingPointIndex.value === i
+
+      // Outer glow ring
       ctx.beginPath()
-      ctx.arc(pt[0] * scale.value, pt[1] * scale.value, 5, 0, Math.PI * 2)
+      ctx.arc(px, py, isDragging ? 10 : 7, 0, Math.PI * 2)
+      ctx.fillStyle = isDragging ? 'rgba(45, 212, 191, 0.3)' : 'rgba(45, 212, 191, 0.15)'
+      ctx.fill()
+
+      // Inner dot
+      ctx.beginPath()
+      ctx.arc(px, py, isDragging ? 6 : 5, 0, Math.PI * 2)
       ctx.fillStyle = '#14b8a6'
       ctx.fill()
       ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 1.5
+      ctx.lineWidth = 2
       ctx.stroke()
+
+      // Corner label
+      const labels = ['TL', 'TR', 'BR', 'BL']
+      ctx.font = '10px Inter, system-ui, sans-serif'
+      ctx.fillStyle = '#fff'
+      ctx.fillText(labels[i], px + 8, py - 8)
     }
   }
 }
@@ -115,18 +137,59 @@ function drawQuad(ctx, corners, fillColor, strokeColor) {
   ctx.stroke()
 }
 
-function onCanvasClick(e) {
-  if (points.value.length >= 4) return
-
+function getCanvasCoords(e) {
   const rect = canvasRef.value.getBoundingClientRect()
-  const cssX = e.clientX - rect.left
-  const cssY = e.clientY - rect.top
+  return {
+    cssX: e.clientX - rect.left,
+    cssY: e.clientY - rect.top,
+  }
+}
 
+function findNearPoint(cssX, cssY) {
+  for (let i = 0; i < points.value.length; i++) {
+    const dx = points.value[i][0] * scale.value - cssX
+    const dy = points.value[i][1] * scale.value - cssY
+    if (Math.sqrt(dx * dx + dy * dy) < GRAB_RADIUS) return i
+  }
+  return -1
+}
+
+function onCanvasMouseDown(e) {
+  if (e.button !== 0 || e.shiftKey) return
+  const { cssX, cssY } = getCanvasCoords(e)
+  const idx = findNearPoint(cssX, cssY)
+  if (idx >= 0) {
+    draggingPointIndex.value = idx
+    e.preventDefault()
+    return
+  }
+  // Place new point
+  if (points.value.length >= 4) return
   const realX = cssX / scale.value
   const realY = cssY / scale.value
-
   points.value.push([Math.round(realX * 100) / 100, Math.round(realY * 100) / 100])
   scheduleRedraw()
+}
+
+function onCanvasMouseMove(e) {
+  const { cssX, cssY } = getCanvasCoords(e)
+  if (draggingPointIndex.value >= 0) {
+    const realX = cssX / scale.value
+    const realY = cssY / scale.value
+    const clamped = [
+      Math.round(Math.max(0, Math.min(naturalWidth.value, realX)) * 100) / 100,
+      Math.round(Math.max(0, Math.min(naturalHeight.value, realY)) * 100) / 100,
+    ]
+    points.value[draggingPointIndex.value] = clamped
+    scheduleRedraw()
+    return
+  }
+  // Update cursor for hover state
+  isHoveringPoint.value = findNearPoint(cssX, cssY) >= 0
+}
+
+function onCanvasMouseUp() {
+  draggingPointIndex.value = -1
 }
 
 function undoPoint() {
@@ -145,6 +208,29 @@ async function savePlate() {
   points.value = []
   emit('plateSaved')
   nextTick(scheduleRedraw)
+}
+
+async function autoDetect() {
+  detecting.value = true
+  try {
+    const res = await api.post(`/images/${props.image.id}/detect`)
+    const detected = res.data.plates
+    if (!detected || detected.length === 0) {
+      window.dispatchEvent(new CustomEvent('api-error', { detail: { message: 'No plates detected. Try marking manually.' } }))
+      return
+    }
+    // Save each detected plate automatically
+    for (const corners of detected) {
+      await api.post(`/images/${props.image.id}/plates`, {
+        corners,
+        redact_mode: redactMode.value,
+      })
+    }
+    emit('plateSaved')
+    nextTick(scheduleRedraw)
+  } finally {
+    detecting.value = false
+  }
 }
 
 function onWheel(e) {
@@ -253,6 +339,21 @@ onUnmounted(() => {
       </label>
 
       <button
+        @click="autoDetect"
+        :disabled="detecting"
+        class="btn-secondary text-xs px-3 py-1.5 inline-flex items-center gap-1.5"
+      >
+        <svg v-if="detecting" class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <svg v-else class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+        </svg>
+        {{ detecting ? 'Detecting...' : 'Auto Detect' }}
+      </button>
+
+      <button
         @click="undoPoint"
         :disabled="!points.length"
         class="btn-secondary text-xs px-3 py-1.5"
@@ -306,11 +407,14 @@ onUnmounted(() => {
         />
         <canvas
           ref="canvasRef"
-          class="absolute top-0 left-0 cursor-crosshair"
+          class="absolute top-0 left-0"
+          :class="draggingPointIndex >= 0 ? 'cursor-grabbing' : isHoveringPoint ? 'cursor-grab' : 'cursor-crosshair'"
           :width="displayWidth"
           :height="displayHeight"
           :style="{ width: displayWidth + 'px', height: displayHeight + 'px' }"
-          @click="onCanvasClick"
+          @mousedown="onCanvasMouseDown"
+          @mousemove="onCanvasMouseMove"
+          @mouseup="onCanvasMouseUp"
         />
         <PlateOverlay
           v-if="image.plates"
@@ -321,21 +425,34 @@ onUnmounted(() => {
       </div>
 
       <!-- Instructions -->
-      <div
-        v-if="points.length < 4"
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-surface-400/90 backdrop-blur-sm text-slate-300 text-sm px-4 py-2 rounded-xl border border-white/10"
-      >
-        Click corner {{ points.length + 1 }} of 4
-        <span class="text-slate-500 ml-2">
-          (TL &rarr; TR &rarr; BR &rarr; BL)
-        </span>
-      </div>
+      <Transition name="fade">
+        <div
+          v-if="points.length < 4"
+          :key="points.length"
+          class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-surface-400/90 backdrop-blur-sm text-slate-300 text-sm px-4 py-2 rounded-xl border border-white/10 shadow-lg"
+        >
+          <span class="inline-flex items-center gap-2">
+            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-accent/20 text-accent text-xs font-bold">{{ points.length + 1 }}</span>
+            Click corner {{ points.length + 1 }} of 4
+            <span class="text-slate-500">
+              (TL &rarr; TR &rarr; BR &rarr; BL)
+            </span>
+          </span>
+        </div>
+      </Transition>
       <div
         v-else-if="points.length === 4"
         class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-accent/90 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-xl"
       >
-        Quad complete &mdash; click "Save Plate" or add more detail
+        Quad complete &mdash; drag corners to adjust, then "Save Plate"
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active { transition: all 0.2s ease-out; }
+.fade-leave-active { transition: all 0.15s ease-in; }
+.fade-enter-from { opacity: 0; transform: translate(-50%, 4px); }
+.fade-leave-to { opacity: 0; transform: translate(-50%, -4px); }
+</style>

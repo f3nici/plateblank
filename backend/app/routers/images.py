@@ -24,6 +24,7 @@ from ..schemas import (
     PlateResponse,
     ProcessResponse,
 )
+from ..services.detector import detect_plates
 from ..services.redactor import redact_image
 
 router = APIRouter(tags=["images"])
@@ -223,6 +224,31 @@ async def create_plate(
 
     plate.corners = plate_data.corners
     return plate
+
+
+@router.post("/api/images/{image_id}/detect")
+async def detect_plates_endpoint(
+    image_id: int,
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    result = await db.execute(
+        select(Image).where(Image.id == image_id, Image.session_token == token)
+    )
+    image = result.scalar_one_or_none()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    path = settings.originals_dir / image.original_path
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Original file not found")
+
+    try:
+        plates = detect_plates(path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Detection failed: {e}")
+
+    return {"plates": plates}
 
 
 @router.post("/api/images/{image_id}/process", response_model=ProcessResponse)

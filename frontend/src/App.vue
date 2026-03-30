@@ -84,4 +84,8 @@ onUnmounted(() => {
 .fade-leave-to {
   opacity: 0;
 }
+/* Active nav link underline */
+.router-link-active {
+  position: relative;
+}
 </style>
