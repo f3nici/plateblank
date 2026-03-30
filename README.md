@@ -37,10 +37,6 @@ docker build -t plateblank:latest .
 docker run -p 8000:8000 -v plateblank_data:/app/data plateblank:latest
 ```
 
-## GitHub Actions
-
-The included workflow builds and pushes the Docker image to GHCR. Trigger it manually from the Actions tab and type your desired image tag (e.g. `1.0.0`, `latest`).
-
 ## Data Persistence
 
 Mount `/app/data` as a volume. It contains the SQLite database, uploaded originals, and processed outputs.
