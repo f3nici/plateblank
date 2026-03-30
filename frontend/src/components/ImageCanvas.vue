@@ -230,15 +230,9 @@ async function autoDetect() {
       window.dispatchEvent(new CustomEvent('api-error', { detail: { message: 'No plates detected. Try marking manually.' } }))
       return
     }
-    // Save each detected plate automatically
-    for (const corners of detected) {
-      await api.post(`/images/${props.image.id}/plates`, {
-        corners,
-        redact_mode: redactMode.value,
-      })
-    }
-    emit('plateSaved')
-    nextTick(scheduleRedraw)
+    // Load the best detection as draft points so the user can adjust before saving
+    points.value = detected[0].map(([x, y]) => [x, y])
+    scheduleRedraw()
   } finally {
     detecting.value = false
   }
