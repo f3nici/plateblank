@@ -1,7 +1,21 @@
 import axios from 'axios'
 
+function getSessionToken() {
+  let token = localStorage.getItem('plateblank_session')
+  if (!token) {
+    token = crypto.randomUUID()
+    localStorage.setItem('plateblank_session', token)
+  }
+  return token
+}
+
 const api = axios.create({
   baseURL: '/api',
+})
+
+api.interceptors.request.use((config) => {
+  config.headers['X-Session-Token'] = getSessionToken()
+  return config
 })
 
 api.interceptors.response.use(
@@ -9,7 +23,6 @@ api.interceptors.response.use(
   (error) => {
     const message =
       error.response?.data?.detail || error.message || 'An error occurred'
-    // Dispatch a custom event for toast notifications
     window.dispatchEvent(
       new CustomEvent('api-error', { detail: { message } })
     )
@@ -17,4 +30,5 @@ api.interceptors.response.use(
   }
 )
 
+export { getSessionToken }
 export default api

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { getSessionToken } from '../api.js'
 import api from '../api.js'
 
 const images = ref([])
@@ -23,7 +24,8 @@ function toggleOriginal(id) {
 }
 
 function downloadOne(image) {
-  window.open(`/api/images/${image.id}/download`, '_blank')
+  const token = getSessionToken()
+  window.open(`/api/images/${image.id}/download?session_token=${token}`, '_blank')
 }
 
 async function downloadAll() {
@@ -39,8 +41,9 @@ async function downloadAll() {
 }
 
 function imageUrl(image, type) {
-  if (type === 'original') return `/api/images/${image.id}/original`
-  return `/api/images/${image.id}/download`
+  const token = getSessionToken()
+  if (type === 'original') return `/api/images/${image.id}/original?session_token=${token}`
+  return `/api/images/${image.id}/download?session_token=${token}`
 }
 
 onMounted(loadImages)
@@ -49,21 +52,21 @@ onMounted(loadImages)
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-gray-900">Results</h1>
+      <h1 class="text-2xl font-bold text-white">Results</h1>
       <button
         v-if="images.length"
         @click="downloadAll"
-        class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        class="btn-primary text-sm"
       >
         Download All as ZIP
       </button>
     </div>
 
-    <div v-if="loading" class="text-center py-12 text-gray-500">Loading...</div>
+    <div v-if="loading" class="text-center py-12 text-slate-500">Loading...</div>
 
-    <div v-else-if="!images.length" class="text-center py-12">
-      <p class="text-gray-500 mb-4">No processed images yet.</p>
-      <router-link to="/annotate" class="text-blue-600 hover:text-blue-700 font-medium">
+    <div v-else-if="!images.length" class="text-center py-16">
+      <p class="text-slate-500 mb-4">No processed images yet.</p>
+      <router-link to="/annotate" class="text-accent hover:text-accent-light font-medium transition-colors">
         Go annotate some plates
       </router-link>
     </div>
@@ -72,9 +75,9 @@ onMounted(loadImages)
       <div
         v-for="image in images"
         :key="image.id"
-        class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
+        class="glass-card-hover overflow-hidden"
       >
-        <div class="relative aspect-video bg-gray-100">
+        <div class="relative aspect-video bg-surface-500">
           <img
             :src="imageUrl(image, showOriginal[image.id] ? 'original' : 'processed')"
             :alt="image.filename"
@@ -82,25 +85,25 @@ onMounted(loadImages)
           />
           <span
             v-if="showOriginal[image.id]"
-            class="absolute top-2 left-2 bg-yellow-500 text-white text-xs px-2 py-0.5 rounded"
+            class="absolute top-2 left-2 bg-yellow-500/90 text-white text-xs px-2 py-0.5 rounded-lg"
           >
             Original
           </span>
         </div>
-        <div class="p-3 flex items-center justify-between">
-          <span class="text-sm text-gray-700 truncate" :title="image.filename">
+        <div class="p-3 flex items-center justify-between border-t border-white/5">
+          <span class="text-sm text-slate-400 truncate" :title="image.filename">
             {{ image.filename }}
           </span>
           <div class="flex gap-2 shrink-0">
             <button
               @click="toggleOriginal(image.id)"
-              class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 border rounded"
+              class="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-surface-300 transition-colors"
             >
               {{ showOriginal[image.id] ? 'Redacted' : 'Original' }}
             </button>
             <button
               @click="downloadOne(image)"
-              class="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 border border-blue-200 rounded"
+              class="text-xs text-accent hover:text-accent-light px-2.5 py-1 rounded-lg bg-accent/10 transition-colors"
             >
               Download
             </button>

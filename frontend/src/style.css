@@ -1,3 +1,61 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar for dark theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(20, 184, 166, 0.3);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(20, 184, 166, 0.5);
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-surface-400/60 backdrop-blur-xl border border-white/5 rounded-2xl;
+  }
+  .glass-card-hover {
+    @apply glass-card transition-all duration-200 hover:border-accent/20 hover:shadow-lg hover:shadow-accent/5;
+  }
+  .btn-primary {
+    @apply px-5 py-2.5 bg-gradient-to-r from-accent-dark to-accent text-white font-medium rounded-xl
+           hover:from-accent hover:to-accent-light transition-all duration-200
+           shadow-lg shadow-accent/20 hover:shadow-accent/30
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-accent/20;
+  }
+  .btn-secondary {
+    @apply px-4 py-2 bg-surface-300 text-slate-300 font-medium rounded-xl border border-white/5
+           hover:bg-surface-200 hover:text-white transition-all duration-200
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+}
+
+/* Smooth page transitions */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
