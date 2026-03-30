@@ -18,6 +18,7 @@ from .routers import images, plates
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create data directories
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.originals_dir.mkdir(parents=True, exist_ok=True)
     settings.processed_dir.mkdir(parents=True, exist_ok=True)
 
