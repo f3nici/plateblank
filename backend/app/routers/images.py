@@ -85,6 +85,8 @@ async def upload_images(
         uploaded.append(image)
 
     await db.commit()
+    for image in uploaded:
+        await db.refresh(image)
     return uploaded
 
 
