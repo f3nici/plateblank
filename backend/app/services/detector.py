@@ -123,7 +123,7 @@ def _score_candidate(
 
     # Contrast score — plates tend to be brighter than surroundings
     mask = np.zeros(gray.shape, dtype=np.uint8)
-    cv2.fillConvexPoly(mask, np.int0(approx.reshape(-1, 2)), 255)
+    cv2.fillConvexPoly(mask, approx.reshape(-1, 2).astype(np.int32), 255)
     inner_mean = cv2.mean(gray, mask=mask)[0]
 
     dilated = cv2.dilate(mask, np.ones((15, 15), np.uint8), iterations=1)
