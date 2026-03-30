@@ -24,7 +24,6 @@ const imageLoaded = ref(false)
 const naturalWidth = ref(0)
 const naturalHeight = ref(0)
 const draggingPointIndex = ref(-1)
-const isHoveringPoint = ref(false)
 const detecting = ref(false)
 
 let drawRAF = null
@@ -171,6 +170,16 @@ function onCanvasMouseDown(e) {
   scheduleRedraw()
 }
 
+function updateCursor() {
+  const canvas = canvasRef.value
+  if (!canvas) return
+  if (draggingPointIndex.value >= 0) {
+    canvas.style.cursor = 'grabbing'
+  } else {
+    canvas.style.cursor = 'crosshair'
+  }
+}
+
 function onCanvasMouseMove(e) {
   const { cssX, cssY } = getCanvasCoords(e)
   if (draggingPointIndex.value >= 0) {
@@ -184,12 +193,14 @@ function onCanvasMouseMove(e) {
     scheduleRedraw()
     return
   }
-  // Update cursor for hover state
-  isHoveringPoint.value = findNearPoint(cssX, cssY) >= 0
+  // Update cursor directly on DOM to avoid Vue re-render clearing canvas
+  const hovering = findNearPoint(cssX, cssY) >= 0
+  canvasRef.value.style.cursor = hovering ? 'grab' : 'crosshair'
 }
 
 function onCanvasMouseUp() {
   draggingPointIndex.value = -1
+  updateCursor()
 }
 
 function undoPoint() {
@@ -407,8 +418,7 @@ onUnmounted(() => {
         />
         <canvas
           ref="canvasRef"
-          class="absolute top-0 left-0"
-          :class="draggingPointIndex >= 0 ? 'cursor-grabbing' : isHoveringPoint ? 'cursor-grab' : 'cursor-crosshair'"
+          class="absolute top-0 left-0 cursor-crosshair"
           :width="displayWidth"
           :height="displayHeight"
           :style="{ width: displayWidth + 'px', height: displayHeight + 'px' }"
