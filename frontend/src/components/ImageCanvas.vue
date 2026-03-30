@@ -15,7 +15,7 @@ const containerRef = ref(null)
 const imgEl = ref(null)
 
 const points = ref([])
-const redactMode = ref('white')
+const redactMode = ref('color_match')
 const zoom = ref(1)
 const panOffset = ref({ x: 0, y: 0 })
 const isPanning = ref(false)
@@ -344,6 +344,7 @@ onUnmounted(() => {
 
       <label class="flex items-center gap-1.5 text-sm text-slate-400">
         <select v-model="redactMode" class="text-sm bg-surface-300 border border-white/10 rounded-lg px-2.5 py-1 text-slate-300 focus:outline-none focus:border-accent/40">
+          <option value="color_match">Color Match</option>
           <option value="white">White Fill</option>
           <option value="blur">Blur</option>
         </select>

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class PlateCreate(BaseModel):
     corners: list[list[float]] = Field(..., min_length=4, max_length=4)
-    redact_mode: Literal["white", "blur"] = "white"
+    redact_mode: Literal["white", "blur", "color_match"] = "color_match"
 
 
 class PlateResponse(BaseModel):
