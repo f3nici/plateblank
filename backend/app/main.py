@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -68,4 +68,15 @@ async def request_entity_too_large(request: Request, exc: Exception) -> JSONResp
 # Serve Vue frontend in production
 frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if frontend_dist.is_dir():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    # Serve built assets (JS, CSS, etc.)
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    # SPA catch-all: serve index.html for any non-API route
+    @app.get("/{path:path}")
+    async def serve_spa(path: str) -> FileResponse:
+        file_path = frontend_dist / path
+        if file_path.is_file() and ".." not in path:
+            return FileResponse(str(file_path))
+        return FileResponse(str(frontend_dist / "index.html"))
