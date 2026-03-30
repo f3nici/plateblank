@@ -75,13 +75,13 @@ onMounted(loadImages)
       <div
         v-for="image in images"
         :key="image.id"
-        class="glass-card-hover overflow-hidden"
+        class="glass-card-hover overflow-hidden group"
       >
-        <div class="relative aspect-video bg-surface-500">
+        <div class="relative aspect-video bg-surface-500 overflow-hidden">
           <img
             :src="imageUrl(image, showOriginal[image.id] ? 'original' : 'processed')"
             :alt="image.filename"
-            class="w-full h-full object-contain"
+            class="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
           />
           <span
             v-if="showOriginal[image.id]"

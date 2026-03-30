@@ -34,10 +34,10 @@ function thumbnailUrl(image) {
     <div
       v-for="image in images"
       :key="image.id"
-      class="relative group cursor-pointer rounded-xl overflow-hidden border-2 transition-all duration-150"
+      class="relative group cursor-pointer rounded-xl overflow-hidden border-2 transition-all duration-200"
       :class="selectedId === image.id
-        ? 'border-accent shadow-lg shadow-accent/10'
-        : 'border-transparent hover:border-white/10'"
+        ? 'border-accent shadow-lg shadow-accent/10 scale-[1.03]'
+        : 'border-transparent hover:border-white/10 hover:scale-[1.02]'"
       @click="emit('select', image.id)"
     >
       <img

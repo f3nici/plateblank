@@ -31,19 +31,31 @@
     @apply bg-surface-400/60 backdrop-blur-xl border border-white/5 rounded-2xl;
   }
   .glass-card-hover {
-    @apply glass-card transition-all duration-200 hover:border-accent/20 hover:shadow-lg hover:shadow-accent/5;
+    @apply glass-card transition-all duration-200 hover:border-accent/20 hover:shadow-lg hover:shadow-accent/5
+           hover:scale-[1.01] active:scale-[0.99];
   }
   .btn-primary {
     @apply px-5 py-2.5 bg-gradient-to-r from-accent-dark to-accent text-white font-medium rounded-xl
-           hover:from-accent hover:to-accent-light transition-all duration-200
-           shadow-lg shadow-accent/20 hover:shadow-accent/30
-           disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-accent/20;
+           hover:from-accent hover:to-accent-light transition-all duration-150
+           shadow-lg shadow-accent/20 hover:shadow-accent/30 hover:scale-[1.02] active:scale-[0.98]
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-accent/20 disabled:hover:scale-100;
   }
   .btn-secondary {
     @apply px-4 py-2 bg-surface-300 text-slate-300 font-medium rounded-xl border border-white/5
-           hover:bg-surface-200 hover:text-white transition-all duration-200
-           disabled:opacity-40 disabled:cursor-not-allowed;
+           hover:bg-surface-200 hover:text-white transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100;
   }
+}
+
+/* Smooth skeleton loading pulse */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.05) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
 
 /* Smooth page transitions */
