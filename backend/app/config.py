@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     data_dir: Path = Path("/app/data")
-    database_url: str = "sqlite+aiosqlite:///app/data/plateblank.db"
+    database_url: str = "sqlite+aiosqlite:////app/data/plateblank.db"
     max_upload_size: int = 20 * 1024 * 1024  # 20 MB
     allowed_extensions: set[str] = {".jpg", ".jpeg", ".png", ".webp"}
 
