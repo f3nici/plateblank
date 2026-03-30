@@ -300,7 +300,7 @@ function imageOriginalUrl() {
   return `/api/images/${props.image.id}/original?session_token=${token}`
 }
 
-watch(() => props.image, () => {
+watch(() => props.image.id, () => {
   points.value = []
   imageLoaded.value = false
   zoom.value = 1
