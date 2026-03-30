@@ -5,11 +5,15 @@ Self-hosted tool for manually redacting number plates from vehicle photos. Uploa
 ## Quick Start
 
 ```bash
-docker run -d \
-  --name plateblank \
-  -p 8000:8000 \
-  -v plateblank_data:/app/data \
-  ghcr.io/YOUR_USERNAME/plateblank:latest
+services:
+  plateblank:
+    container_name: plateblank
+    image: f3nici/plateblank
+    ports:
+      - 30065:8000
+    volumes:
+      - ./plateblank_data:/app/data
+networks: {}
 ```
 
 Open `http://localhost:8000` in your browser.
