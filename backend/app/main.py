@@ -27,6 +27,16 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
         # Enable WAL mode
         await conn.execute(text("PRAGMA journal_mode=WAL"))
+        # Migrate: add session_token column if missing
+        result = await conn.execute(text("PRAGMA table_info(images)"))
+        columns = [row[1] for row in result]
+        if "session_token" not in columns:
+            await conn.execute(
+                text("ALTER TABLE images ADD COLUMN session_token TEXT")
+            )
+            await conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_images_session_token ON images (session_token)")
+            )
 
     yield
 

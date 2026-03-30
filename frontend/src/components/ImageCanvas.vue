@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { getSessionToken } from '../api.js'
 import api from '../api.js'
 import PlateOverlay from './PlateOverlay.vue'
 
@@ -23,14 +24,18 @@ const imageLoaded = ref(false)
 const naturalWidth = ref(0)
 const naturalHeight = ref(0)
 
-const scale = computed(() => {
+let drawRAF = null
+
+const baseScale = computed(() => {
   if (!containerRef.value || !naturalWidth.value) return 1
   const containerWidth = containerRef.value.clientWidth
   const containerHeight = containerRef.value.clientHeight - 60
   const scaleX = containerWidth / naturalWidth.value
   const scaleY = containerHeight / naturalHeight.value
-  return Math.min(scaleX, scaleY, 1) * zoom.value
+  return Math.min(scaleX, scaleY, 1)
 })
+
+const scale = computed(() => baseScale.value * zoom.value)
 
 const displayWidth = computed(() => naturalWidth.value * scale.value)
 const displayHeight = computed(() => naturalHeight.value * scale.value)
@@ -41,7 +46,12 @@ function onImageLoad(e) {
   imageLoaded.value = true
   zoom.value = 1
   panOffset.value = { x: 0, y: 0 }
-  nextTick(drawCanvas)
+  scheduleRedraw()
+}
+
+function scheduleRedraw() {
+  if (drawRAF) cancelAnimationFrame(drawRAF)
+  drawRAF = requestAnimationFrame(drawCanvas)
 }
 
 function drawCanvas() {
@@ -57,14 +67,14 @@ function drawCanvas() {
   // Draw existing plates
   if (props.image.plates) {
     for (const plate of props.image.plates) {
-      drawQuad(ctx, plate.corners, 'rgba(255, 0, 0, 0.2)', 'rgba(255, 0, 0, 0.7)')
+      drawQuad(ctx, plate.corners, 'rgba(20, 184, 166, 0.15)', 'rgba(20, 184, 166, 0.7)')
     }
   }
 
   // Draw current points
   if (points.value.length > 0) {
     ctx.beginPath()
-    ctx.strokeStyle = '#3b82f6'
+    ctx.strokeStyle = '#2dd4bf'
     ctx.lineWidth = 2
     const first = points.value[0]
     ctx.moveTo(first[0] * scale.value, first[1] * scale.value)
@@ -73,7 +83,7 @@ function drawCanvas() {
     }
     if (points.value.length === 4) {
       ctx.closePath()
-      ctx.fillStyle = 'rgba(59, 130, 246, 0.2)'
+      ctx.fillStyle = 'rgba(45, 212, 191, 0.15)'
       ctx.fill()
     }
     ctx.stroke()
@@ -82,7 +92,7 @@ function drawCanvas() {
     for (const pt of points.value) {
       ctx.beginPath()
       ctx.arc(pt[0] * scale.value, pt[1] * scale.value, 5, 0, Math.PI * 2)
-      ctx.fillStyle = '#3b82f6'
+      ctx.fillStyle = '#14b8a6'
       ctx.fill()
       ctx.strokeStyle = '#fff'
       ctx.lineWidth = 1.5
@@ -112,23 +122,16 @@ function onCanvasClick(e) {
   const cssX = e.clientX - rect.left
   const cssY = e.clientY - rect.top
 
-  // Convert to natural image coordinates
   const realX = cssX / scale.value
   const realY = cssY / scale.value
 
   points.value.push([Math.round(realX * 100) / 100, Math.round(realY * 100) / 100])
-
-  if (points.value.length === 4) {
-    // Auto-save after 4th point
-    nextTick(drawCanvas)
-  } else {
-    drawCanvas()
-  }
+  scheduleRedraw()
 }
 
 function undoPoint() {
   points.value.pop()
-  drawCanvas()
+  scheduleRedraw()
 }
 
 async function savePlate() {
@@ -141,14 +144,31 @@ async function savePlate() {
 
   points.value = []
   emit('plateSaved')
-  nextTick(drawCanvas)
+  nextTick(scheduleRedraw)
 }
 
 function onWheel(e) {
   e.preventDefault()
+  const container = containerRef.value
+  if (!container) return
+
+  const rect = container.getBoundingClientRect()
+  const mouseX = e.clientX - rect.left
+  const mouseY = e.clientY - rect.top
+
+  const oldZoom = zoom.value
   const delta = e.deltaY > 0 ? 0.9 : 1.1
-  zoom.value = Math.max(0.5, Math.min(5, zoom.value * delta))
-  nextTick(drawCanvas)
+  const newZoom = Math.max(0.5, Math.min(5, oldZoom * delta))
+
+  // Adjust pan so the point under the mouse stays fixed
+  const zoomRatio = newZoom / oldZoom
+  panOffset.value = {
+    x: mouseX - (mouseX - panOffset.value.x) * zoomRatio,
+    y: mouseY - (mouseY - panOffset.value.y) * zoomRatio,
+  }
+
+  zoom.value = newZoom
+  scheduleRedraw()
 }
 
 function onMouseDown(e) {
@@ -175,7 +195,12 @@ function onMouseUp() {
 function resetView() {
   zoom.value = 1
   panOffset.value = { x: 0, y: 0 }
-  nextTick(drawCanvas)
+  scheduleRedraw()
+}
+
+function imageOriginalUrl() {
+  const token = getSessionToken()
+  return `/api/images/${props.image.id}/original?session_token=${token}`
 }
 
 watch(() => props.image, () => {
@@ -186,7 +211,7 @@ watch(() => props.image, () => {
 })
 
 watch(() => [props.image.plates, scale.value], () => {
-  nextTick(drawCanvas)
+  scheduleRedraw()
 }, { deep: true })
 
 onMounted(() => {
@@ -197,21 +222,22 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('mousemove', onMouseMove)
+  if (drawRAF) cancelAnimationFrame(drawRAF)
 })
 </script>
 
 <template>
   <div class="flex flex-col h-full" ref="containerRef">
     <!-- Toolbar -->
-    <div class="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-gray-50 shrink-0">
-      <span class="text-sm font-medium text-gray-700 truncate">{{ image.filename }}</span>
+    <div class="flex items-center gap-3 px-4 py-2 border-b border-white/5 bg-surface-400/50 shrink-0">
+      <span class="text-sm font-medium text-slate-300 truncate">{{ image.filename }}</span>
       <span
-        class="text-xs px-2 py-0.5 rounded-full capitalize"
+        class="text-xs px-2 py-0.5 rounded-full capitalize font-medium"
         :class="{
-          'bg-gray-200 text-gray-600': image.status === 'pending',
-          'bg-yellow-100 text-yellow-700': image.status === 'annotated',
-          'bg-green-100 text-green-700': image.status === 'processed',
-          'bg-red-100 text-red-700': image.status === 'error',
+          'bg-slate-700 text-slate-400': image.status === 'pending',
+          'bg-yellow-500/20 text-yellow-400': image.status === 'annotated',
+          'bg-accent/20 text-accent-light': image.status === 'processed',
+          'bg-red-500/20 text-red-400': image.status === 'error',
         }"
       >
         {{ image.status }}
@@ -219,9 +245,8 @@ onUnmounted(() => {
 
       <div class="flex-1"></div>
 
-      <label class="flex items-center gap-1.5 text-sm text-gray-600">
-        Mode:
-        <select v-model="redactMode" class="text-sm border rounded px-2 py-1">
+      <label class="flex items-center gap-1.5 text-sm text-slate-400">
+        <select v-model="redactMode" class="text-sm bg-surface-300 border border-white/10 rounded-lg px-2.5 py-1 text-slate-300 focus:outline-none focus:border-accent/40">
           <option value="white">White Fill</option>
           <option value="blur">Blur</option>
         </select>
@@ -230,29 +255,29 @@ onUnmounted(() => {
       <button
         @click="undoPoint"
         :disabled="!points.length"
-        class="text-sm px-3 py-1 border rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30"
+        class="btn-secondary text-xs px-3 py-1.5"
       >
-        Undo Point
+        Undo
       </button>
 
       <button
         @click="savePlate"
         :disabled="points.length !== 4"
-        class="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-30"
+        class="btn-primary text-xs px-3 py-1.5"
       >
         Save Plate
       </button>
 
       <button
         @click="resetView"
-        class="text-sm px-3 py-1 border rounded text-gray-600 hover:bg-gray-100"
+        class="btn-secondary text-xs px-3 py-1.5"
       >
         Reset Zoom
       </button>
 
       <button
         @click="emit('saveAndNext')"
-        class="text-sm px-3 py-1 bg-gray-800 text-white rounded hover:bg-gray-900"
+        class="btn-secondary text-xs px-3 py-1.5"
       >
         Next &rarr;
       </button>
@@ -260,7 +285,7 @@ onUnmounted(() => {
 
     <!-- Canvas area -->
     <div
-      class="flex-1 overflow-hidden flex items-center justify-center bg-gray-100 relative"
+      class="flex-1 overflow-hidden flex items-center justify-center bg-surface-500 relative"
       @wheel.prevent="onWheel"
       @mousedown="onMouseDown"
     >
@@ -272,7 +297,7 @@ onUnmounted(() => {
       >
         <img
           ref="imgEl"
-          :src="`/api/images/${image.id}/original`"
+          :src="imageOriginalUrl()"
           :alt="image.filename"
           class="block max-w-none"
           :style="{ width: displayWidth + 'px', height: displayHeight + 'px' }"
@@ -298,18 +323,18 @@ onUnmounted(() => {
       <!-- Instructions -->
       <div
         v-if="points.length < 4"
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-4 py-2 rounded-lg"
+        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-surface-400/90 backdrop-blur-sm text-slate-300 text-sm px-4 py-2 rounded-xl border border-white/10"
       >
         Click corner {{ points.length + 1 }} of 4
-        <span class="text-white/60 ml-2">
+        <span class="text-slate-500 ml-2">
           (TL &rarr; TR &rarr; BR &rarr; BL)
         </span>
       </div>
       <div
         v-else-if="points.length === 4"
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg"
+        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-accent/90 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-xl"
       >
-        Quad complete — click "Save Plate" or add more detail
+        Quad complete &mdash; click "Save Plate" or add more detail
       </div>
     </div>
   </div>

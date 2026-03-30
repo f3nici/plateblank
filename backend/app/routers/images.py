@@ -6,7 +6,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,9 +29,21 @@ from ..services.redactor import redact_image
 router = APIRouter(tags=["images"])
 
 
+def _require_session(
+    x_session_token: str | None = Header(None),
+    session_token: str | None = Query(None),
+) -> str:
+    """Extract session token from header or query parameter."""
+    token = x_session_token or session_token
+    if not token:
+        raise HTTPException(status_code=403, detail="Session token required")
+    return token
+
+
 @router.post("/api/images/upload", response_model=list[ImageResponse])
 async def upload_images(
     files: list[UploadFile],
+    token: str = Depends(_require_session),
     db: AsyncSession = Depends(get_db),
 ) -> list[Image]:
     uploaded: list[Image] = []
@@ -58,6 +70,7 @@ async def upload_images(
             original_path="",
             filename=file.filename,
             status="pending",
+            session_token=token,
         )
         db.add(image)
         await db.flush()
@@ -80,10 +93,11 @@ async def list_images(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
     status: str | None = Query(None),
+    token: str = Depends(_require_session),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    query = select(Image).order_by(Image.created_at.desc())
-    count_query = select(func.count(Image.id))
+    query = select(Image).where(Image.session_token == token).order_by(Image.created_at.desc())
+    count_query = select(func.count(Image.id)).where(Image.session_token == token)
 
     if status:
         query = query.where(Image.status == status)
@@ -105,30 +119,40 @@ async def list_images(
 
 
 @router.get("/api/images/{image_id}", response_model=ImageDetailResponse)
-async def get_image(image_id: int, db: AsyncSession = Depends(get_db)) -> Image:
+async def get_image(
+    image_id: int,
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
+) -> Image:
     result = await db.execute(
-        select(Image).options(selectinload(Image.plates)).where(Image.id == image_id)
+        select(Image)
+        .options(selectinload(Image.plates))
+        .where(Image.id == image_id, Image.session_token == token)
     )
     image = result.scalar_one_or_none()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    # Parse corners JSON for response
     for plate in image.plates:
         plate.corners = json.loads(plate.corners) if isinstance(plate.corners, str) else plate.corners
     return image
 
 
 @router.delete("/api/images/{image_id}")
-async def delete_image(image_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+async def delete_image(
+    image_id: int,
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     result = await db.execute(
-        select(Image).options(selectinload(Image.plates)).where(Image.id == image_id)
+        select(Image)
+        .options(selectinload(Image.plates))
+        .where(Image.id == image_id, Image.session_token == token)
     )
     image = result.scalar_one_or_none()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    # Delete files
     original = settings.originals_dir / image.original_path
     if original.exists():
         original.unlink()
@@ -143,8 +167,14 @@ async def delete_image(image_id: int, db: AsyncSession = Depends(get_db)) -> dic
 
 
 @router.get("/api/images/{image_id}/original")
-async def get_original(image_id: int, db: AsyncSession = Depends(get_db)) -> FileResponse:
-    result = await db.execute(select(Image).where(Image.id == image_id))
+async def get_original(
+    image_id: int,
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    result = await db.execute(
+        select(Image).where(Image.id == image_id, Image.session_token == token)
+    )
     image = result.scalar_one_or_none()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -160,9 +190,12 @@ async def get_original(image_id: int, db: AsyncSession = Depends(get_db)) -> Fil
 async def create_plate(
     image_id: int,
     plate_data: PlateCreate,
+    token: str = Depends(_require_session),
     db: AsyncSession = Depends(get_db),
 ) -> Plate:
-    result = await db.execute(select(Image).where(Image.id == image_id))
+    result = await db.execute(
+        select(Image).where(Image.id == image_id, Image.session_token == token)
+    )
     image = result.scalar_one_or_none()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -192,10 +225,14 @@ async def create_plate(
 
 @router.post("/api/images/{image_id}/process", response_model=ProcessResponse)
 async def process_image(
-    image_id: int, db: AsyncSession = Depends(get_db)
+    image_id: int,
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = await db.execute(
-        select(Image).options(selectinload(Image.plates)).where(Image.id == image_id)
+        select(Image)
+        .options(selectinload(Image.plates))
+        .where(Image.id == image_id, Image.session_token == token)
     )
     image = result.scalar_one_or_none()
     if not image:
@@ -205,7 +242,7 @@ async def process_image(
         raise HTTPException(status_code=400, detail="No plates annotated on this image")
 
     try:
-        output_path = await redact_image(
+        await redact_image(
             image, image.plates, settings.originals_dir, settings.processed_dir
         )
         image.output_path = image.original_path
@@ -221,11 +258,14 @@ async def process_image(
 
 
 @router.post("/api/images/process-all", response_model=BatchProcessResponse)
-async def process_all(db: AsyncSession = Depends(get_db)) -> dict:
+async def process_all(
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     result = await db.execute(
         select(Image)
         .options(selectinload(Image.plates))
-        .where(Image.status.in_(["annotated"]))
+        .where(Image.status.in_(["annotated"]), Image.session_token == token)
     )
     images = list(result.scalars().all())
 
@@ -252,9 +292,13 @@ async def process_all(db: AsyncSession = Depends(get_db)) -> dict:
 
 @router.get("/api/images/{image_id}/download")
 async def download_image(
-    image_id: int, db: AsyncSession = Depends(get_db)
+    image_id: int,
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
-    result = await db.execute(select(Image).where(Image.id == image_id))
+    result = await db.execute(
+        select(Image).where(Image.id == image_id, Image.session_token == token)
+    )
     image = result.scalar_one_or_none()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -271,9 +315,12 @@ async def download_image(
 
 
 @router.post("/api/images/download-all")
-async def download_all(db: AsyncSession = Depends(get_db)) -> StreamingResponse:
+async def download_all(
+    token: str = Depends(_require_session),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
     result = await db.execute(
-        select(Image).where(Image.status == "processed")
+        select(Image).where(Image.status == "processed", Image.session_token == token)
     )
     images = list(result.scalars().all())
 
