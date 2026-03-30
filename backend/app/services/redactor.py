@@ -52,35 +52,31 @@ def _color_match_redact(
     corners: np.ndarray,
     mask: np.ndarray,
 ) -> np.ndarray:
-    """Redact a plate region by filling it with colors sampled from the border area.
+    """Redact a plate region with a solid color averaged from the 4 corners.
 
-    Samples colors from a band just outside the plate quad, then uses
-    inpainting to smoothly fill the plate region with the surrounding colors.
-    This makes the redaction blend in with the vehicle body.
+    Samples the color at each corner point (small patch average), then fills
+    the entire plate quad with the average of those 4 colors.
     """
-    # Expand the mask slightly to get the border region for sampling
-    dilated = cv2.dilate(mask, np.ones((15, 15), np.uint8), iterations=2)
-    border_mask = cv2.subtract(dilated, mask)
+    h, w = img.shape[:2]
+    patch_size = 5  # sample a small patch around each corner
 
-    # Get the mean color of the border region
-    mean_color = cv2.mean(img, mask=border_mask)[:3]
+    colors = []
+    for corner in corners:
+        cx, cy = int(corner[0]), int(corner[1])
+        # Clamp patch bounds to image
+        y1 = max(0, cy - patch_size)
+        y2 = min(h, cy + patch_size + 1)
+        x1 = max(0, cx - patch_size)
+        x2 = min(w, cx + patch_size + 1)
+        patch = img[y1:y2, x1:x2]
+        if patch.size > 0:
+            colors.append(patch.mean(axis=(0, 1)))
 
-    # First pass: fill with the mean border color
+    if not colors:
+        return img
+
+    avg_color = np.mean(colors, axis=0).astype(np.uint8)
+
     result = img.copy()
-    result[mask == 255] = mean_color
-
-    # Second pass: use inpainting for smoother blending at edges
-    # This blends the filled area naturally with the surrounding pixels
-    inpainted = cv2.inpaint(result, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-
-    # Use the inpainted result only in the masked region
-    result = np.where(mask[:, :, np.newaxis] == 255, inpainted, img)
-
-    # Apply a very subtle blur just at the edges for seamless blending
-    edge_kernel = np.ones((5, 5), np.uint8)
-    edge_mask = cv2.dilate(mask, edge_kernel, iterations=1)
-    edge_only = cv2.subtract(edge_mask, cv2.erode(mask, edge_kernel, iterations=1))
-    blended = cv2.GaussianBlur(result, (7, 7), 2)
-    result = np.where(edge_only[:, :, np.newaxis] == 255, blended, result)
-
+    result[mask == 255] = avg_color
     return result

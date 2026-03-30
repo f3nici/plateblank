@@ -7,167 +7,133 @@ import numpy as np
 from PIL import Image as PILImage
 
 
-def detect_plates(image_path: Path, max_results: int = 3) -> list[list[list[float]]]:
-    """Detect license plate candidates using OpenCV contour analysis.
+def detect_plates(image_path: Path, max_results: int = 1) -> list[list[list[float]]]:
+    """Detect the single best license plate candidate using OpenCV.
 
-    Uses a multi-stage approach: color-based segmentation to find bright
-    rectangular regions, combined with edge-based detection. Tuned for
-    typical single-plate vehicle photos.
-
-    Returns a list of quads, each quad being 4 corner points [[x,y], ...] in
+    Returns a list with at most one quad: 4 corner points [[x,y], ...] in
     TL, TR, BR, BL order (natural image pixel space).
     """
     pil_img = PILImage.open(image_path).convert("RGB")
     img = np.array(pil_img)
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
 
     h, w = gray.shape[:2]
     img_area = h * w
 
-    # Plate area constraints relative to image
-    min_plate_area = img_area * 0.0008
-    max_plate_area = img_area * 0.08
+    # Plate area constraints — typically 0.1% to 5% of the image
+    min_plate_area = img_area * 0.001
+    max_plate_area = img_area * 0.05
 
     candidates: list[tuple[float, list[list[float]]]] = []
 
-    # --- Stage 1: Color-based detection ---
-    # License plates are typically bright/light-colored rectangles.
-    # Look for high-value, low-to-mid saturation regions (white, light blue, yellow plates).
-    value_channel = hsv[:, :, 2]
-    sat_channel = hsv[:, :, 1]
+    # --- Apply CLAHE for contrast enhancement (helps on dark vehicles) ---
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
 
-    # Threshold for bright regions
-    _, bright_mask = cv2.threshold(value_channel, 150, 255, cv2.THRESH_BINARY)
-    # Exclude highly saturated areas (e.g. red brake lights, colored signs)
-    low_sat_mask = cv2.inRange(sat_channel, 0, 180)
-    plate_mask = cv2.bitwise_and(bright_mask, low_sat_mask)
+    for blur_k in (7, 11):
+        blurred = cv2.bilateralFilter(enhanced, blur_k, 75, 75)
+        edges = cv2.Canny(blurred, 30, 200)
 
-    # Clean up with morphological operations
-    kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5))
-    plate_mask = cv2.morphologyEx(plate_mask, cv2.MORPH_CLOSE, kernel_close)
-    kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 3))
-    plate_mask = cv2.morphologyEx(plate_mask, cv2.MORPH_OPEN, kernel_open)
-
-    contours, _ = cv2.findContours(
-        plate_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-    _extract_plate_candidates(
-        contours, img_area, min_plate_area, max_plate_area, candidates
-    )
-
-    # --- Stage 2: Edge-based detection (multi-scale) ---
-    for blur_k in (7, 13):
-        blurred = cv2.bilateralFilter(gray, blur_k, 75, 75)
-
-        # Apply CLAHE for better contrast in dark images
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(blurred)
-
-        edges = cv2.Canny(enhanced, 30, 150)
-
-        # Use rectangular kernel to favor horizontal structures (plates are wider than tall)
+        # Rectangular kernel — plates are wider than tall
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 3))
         edges = cv2.dilate(edges, kernel, iterations=2)
         edges = cv2.erode(edges, kernel, iterations=1)
 
         contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        _extract_plate_candidates(
-            contours, img_area, min_plate_area, max_plate_area, candidates
-        )
 
-    # --- Stage 3: Bottom-half focused detection ---
-    # Most vehicle photos have the plate in the bottom half
-    bottom_half = gray[h // 2 :, :]
-    blurred_bottom = cv2.bilateralFilter(bottom_half, 11, 75, 75)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    enhanced_bottom = clahe.apply(blurred_bottom)
-    edges_bottom = cv2.Canny(enhanced_bottom, 20, 120)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 3))
-    edges_bottom = cv2.dilate(edges_bottom, kernel, iterations=2)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < min_plate_area or area > max_plate_area:
+                continue
 
-    contours_bottom, _ = cv2.findContours(
-        edges_bottom, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-    )
-    # Offset contour points to full-image coordinates
-    offset_contours = []
-    for cnt in contours_bottom:
-        offset_cnt = cnt.copy()
-        offset_cnt[:, :, 1] += h // 2
-        offset_contours.append(offset_cnt)
-    _extract_plate_candidates(
-        offset_contours,
-        img_area,
-        min_plate_area,
-        max_plate_area,
-        candidates,
-        score_boost=1.5,
-    )
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
 
-    # --- Deduplicate and rank ---
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    final: list[list[list[float]]] = []
-    for _, corners in candidates:
-        if len(final) >= max_results:
-            break
-        cx = sum(c[0] for c in corners) / 4
-        cy = sum(c[1] for c in corners) / 4
-        duplicate = False
-        for existing in final:
-            ecx = sum(c[0] for c in existing) / 4
-            ecy = sum(c[1] for c in existing) / 4
-            dist = ((cx - ecx) ** 2 + (cy - ecy) ** 2) ** 0.5
-            if dist < min(w, h) * 0.05:
-                duplicate = True
-                break
-        if not duplicate:
-            rounded = [[round(c[0], 2), round(c[1], 2)] for c in corners]
-            final.append(rounded)
+            if len(approx) == 4:
+                score = _score_candidate(cnt, approx, gray, h, w, img_area)
+                if score > 0:
+                    corners = _order_corners(approx.reshape(4, 2).tolist())
+                    candidates.append((score, corners))
 
-    return final
-
-
-def _extract_plate_candidates(
-    contours: list[np.ndarray],
-    img_area: int,
-    min_area: float,
-    max_area: float,
-    candidates: list[tuple[float, list[list[float]]]],
-    score_boost: float = 1.0,
-) -> None:
-    """Extract plate-shaped quadrilateral candidates from contours."""
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < min_area or area > max_area:
-            continue
-
-        peri = cv2.arcLength(cnt, True)
-        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-
-        if len(approx) == 4:
+            # Also try minAreaRect for slightly irregular contours
             rect = cv2.minAreaRect(cnt)
             rw, rh = rect[1]
             if rw == 0 or rh == 0:
                 continue
             aspect = max(rw, rh) / min(rw, rh)
             if 1.5 <= aspect <= 7.0:
-                corners = _order_corners(approx.reshape(4, 2).tolist())
-                candidates.append((area * score_boost, corners))
+                rect_area = rw * rh
+                if rect_area < min_plate_area or rect_area > max_plate_area:
+                    continue
+                box = cv2.boxPoints(rect)
+                score = _score_candidate(cnt, box, gray, h, w, img_area)
+                if score > 0:
+                    corners = _order_corners(box.tolist())
+                    candidates.append((score, corners))
 
-        # Also try minAreaRect for rotated plates
-        rect = cv2.minAreaRect(cnt)
-        rw, rh = rect[1]
-        if rw == 0 or rh == 0:
-            continue
-        aspect = max(rw, rh) / min(rw, rh)
-        if 1.5 <= aspect <= 7.0:
-            rect_area = rw * rh
-            if rect_area < min_area or rect_area > max_area:
-                continue
-            box = cv2.boxPoints(rect)
-            corners = _order_corners(box.tolist())
-            candidates.append((rect_area * score_boost, corners))
+    if not candidates:
+        return []
+
+    # Return only the single best candidate
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    best = candidates[0][1]
+    rounded = [[round(c[0], 2), round(c[1], 2)] for c in best]
+    return [rounded]
+
+
+def _score_candidate(
+    cnt: np.ndarray,
+    approx: np.ndarray,
+    gray: np.ndarray,
+    h: int,
+    w: int,
+    img_area: int,
+) -> float:
+    """Score a plate candidate. Higher = more likely a real plate. Returns 0 to reject."""
+    rect = cv2.minAreaRect(cnt)
+    rw, rh = rect[1]
+    if rw == 0 or rh == 0:
+        return 0
+
+    aspect = max(rw, rh) / min(rw, rh)
+    # License plates typically 2:1 to 5:1
+    if aspect < 1.5 or aspect > 7.0:
+        return 0
+
+    area = cv2.contourArea(cnt)
+    score = 0.0
+
+    # Aspect ratio score — peak around 3:1 (common plate ratio)
+    aspect_score = 1.0 - abs(aspect - 3.0) / 4.0
+    score += max(0, aspect_score) * 40
+
+    # Rectangularity — how close the contour fills its bounding rect
+    rect_area = rw * rh
+    if rect_area > 0:
+        rectangularity = area / rect_area
+        score += rectangularity * 30
+
+    # Position score — plates are usually in the bottom 60% of the image
+    cy = rect[0][1]
+    if cy > h * 0.4:
+        score += 20
+    if cy > h * 0.6:
+        score += 10
+
+    # Contrast score — plates tend to be brighter than surroundings
+    mask = np.zeros(gray.shape, dtype=np.uint8)
+    cv2.fillConvexPoly(mask, np.int0(approx.reshape(-1, 2)), 255)
+    inner_mean = cv2.mean(gray, mask=mask)[0]
+
+    dilated = cv2.dilate(mask, np.ones((15, 15), np.uint8), iterations=1)
+    border_mask = cv2.subtract(dilated, mask)
+    outer_mean = cv2.mean(gray, mask=border_mask)[0]
+
+    contrast = abs(inner_mean - outer_mean)
+    score += min(contrast, 80) * 0.5
+
+    return score
 
 
 def _order_corners(pts: list[list[float]]) -> list[list[float]]:
